@@ -1,0 +1,95 @@
+---
+description: 用日常口语管理开发流程（Linear 任务 + Git 分支推荐）
+alwaysApply: true
+---
+
+# 口语化开发流程管理
+
+## 项目配置（修改这里即可切换项目）
+
+```yaml
+project:
+  name: "智能数据分析系统"
+  team: "VIB"
+  repo: "https://github.com/nononoyeah/vibe_coding_01.git"
+```
+
+## 触发方式
+
+当用户用**日常口语**描述开发流程（不要求固定句式），识别意图后**立即执行**，不要只给建议。
+
+使用 **Linear MCP**（`user-Linear`）操作任务；需要分支/PR 时结合 `project.repo` 与本地 git。
+
+## 口语意图 → 动作
+
+| 用户大概会说 | 识别为 | 执行 |
+|---|---|---|
+| 开始开发 / 开始做 / 着手 / 开工 + 功能名 | `start_dev` | 匹配任务 → 状态改为 **In Progress** → 指派 `me` → 推荐分支 |
+| 完成了 / 做完了 / 搞定 / 开发完了 + 功能名 | `finish_dev` | 匹配任务 → 状态改为 **Done** |
+| 创建任务 / 加个任务 / 记个 todo / 新建 issue + 功能名 | `create_task` | 在当前 `project` 下创建任务，默认 **Backlog** |
+| 查看进度 / 有哪些任务 / 任务列表 | `list_tasks` | 列出本项目未完成任务，按状态分组简要展示 |
+| 阻塞了 / 卡住了 / blocked + 功能名 | `block_task` | 匹配任务 → 状态改为 **Blocked**（无则用最接近的阻塞态） |
+| 提 PR / 准备提交 / 可以合并了 + 功能名 | `prepare_pr` | 确认分支与任务关联，给出 PR 标题、描述要点、`gh pr create` 命令 |
+
+功能名从用户原话提取，模糊匹配 `list_issues(project=project.name, team=project.team, query=关键词)`。
+
+## 任务匹配规则
+
+1. 先用 `query` 搜标题/描述；多个候选时列出编号让用户选，或取标题最相似且未 Done 的一条。
+2. 找不到且意图是 `start_dev` / `create_task`：询问是否新建；用户语气明确则直接创建再开始。
+3. 所有写操作限定在 `project.name` 与 `project.team` 范围内。
+
+## 状态更新
+
+更新前可用 `list_issue_statuses(team=project.team)` 确认团队状态名。
+
+默认映射（名称不一致时用最接近项）：
+
+- 开始开发 → `In Progress`
+- 完成 → `Done`
+- 阻塞 → `Blocked` 或 `Canceled`（视团队配置）
+
+使用 `save_issue`：`id` 为议题标识（如 `VIB-5`），`state` 为目标状态，`assignee: "me"`（仅 start_dev）。
+
+## 分支推荐
+
+1. `get_issue` 取 `gitBranchName`（优先）。
+2. 若无，生成：`feat/{issue-key}-{slug}`，如 `feat/vib-6-login-system`（slug 为小写英文连字符）。
+3. 检查本地分支：`git branch --list`；不存在则给出：
+
+```bash
+git fetch origin
+git checkout -b <branch> origin/main
+# 或：git checkout -b <branch>
+```
+
+4. 回复中必须包含：**议题链接**、**推荐分支名**、**建议执行的 git 命令**（不自动 push，除非用户明确要求）。
+
+## 回复格式（简洁）
+
+```
+✅ 已更新：VIB-6 登录系统 → In Progress
+🔗 https://linear.app/.../issue/VIB-6/...
+🌿 推荐分支：feat/vib-6-login-system
+📋 下一步：
+  git checkout -b feat/vib-6-login-system
+```
+
+## 示例
+
+**用户**：开始开发登录系统功能
+
+**Agent**：
+1. `list_issues(project="智能数据分析系统", team="VIB", query="登录")`
+2. 命中则 `save_issue(id="VIB-6", state="In Progress", assignee="me")`
+3. `get_issue` 取 `gitBranchName`，输出分支与 git 命令
+
+**用户**：登录做完了
+
+**Agent**：`save_issue(id="VIB-6", state="Done")`，确认是否提交/开 PR
+
+## 注意
+
+- 未配置 Linear 或 MCP 不可用时：说明原因，并给出应手动执行的 Linear/Git 步骤。
+- 不要修改 `project` 配置，除非用户明确要求切换项目。
+- 口语表达多样，重点看**意图**而非字面；不确定时先问一句，不要误改任务状态。

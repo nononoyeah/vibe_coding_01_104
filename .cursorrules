@@ -1,0 +1,42 @@
+When Cursor auto-generates a Git commit message (Source Control ✨), output MUST strictly follow Angular Conventional Commits. Subject and body in Simplified Chinese; type and scope in English lowercase.
+
+CRITICAL — first line MUST match this pattern exactly:
+<type>(<scope>): <subject>
+or (when no scope):
+<type>: <subject>
+
+Valid types: feat | fix | docs | style | refactor | perf | test | build | ci | chore | revert
+
+FORBIDDEN first lines (never output these):
+❌ 新增中文约定式提交规则与 VSCode 设置文件
+❌ Add commit rules and VSCode settings
+❌ 任何不以 type: 或 type(scope): 开头的句子
+
+REQUIRED structure:
+Line 1: <type>(<scope>): <中文 subject>   ← mandatory prefix, never skip
+Line 2: empty line
+Line 3+: bullet list body (optional)
+
+Rules:
+- subject: Simplified Chinese, ≤50 chars, imperative, no period at end
+- body: Simplified Chinese bullets starting with "- "
+- scope examples: cursor, todo, vscode, api — omit parentheses only if truly no module
+
+Type guide for this repo:
+- .cursorrules / .cursor/rules → chore(cursor)
+- .vscode/settings.json → chore(vscode) or include in chore(cursor)
+- new app feature → feat(<module>)
+- bug fix → fix(<module>)
+- README only → docs
+
+Correct example for rule + settings changes:
+chore(cursor): 新增中文约定式提交规则与 VSCode 设置
+
+- 新增 .cursorrules 定义 SCM 提交格式
+- 新增 conventional-commits-zh.mdc 供 Agent 使用
+- 新增 .vscode/settings.json 配置 Python 环境
+
+Other examples:
+feat(todo): 添加任务筛选与批量清除功能
+fix(todo): 修复重复任务无法删除的问题
+docs: 补充 Todo List 本地运行说明
