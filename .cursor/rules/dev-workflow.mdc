@@ -2,7 +2,6 @@
 description: 用日常口语管理开发流程（Linear 任务 + Git 分支推荐）
 alwaysApply: true
 ---
-
 # 口语化开发流程管理
 
 ## 项目配置（修改这里即可切换项目）
@@ -10,8 +9,9 @@ alwaysApply: true
 ```yaml
 project:
   name: "智能数据分析系统"
-  team: "VIB"
-  repo: "https://github.com/nononoyeah/vibe_coding_01.git"
+  team: "NL2SQL"
+  repo: "https://github.com/nononoyeah/vibe_coding_01_104.git"
+  plan: ".cursor/plans/智能数据分析系统规划_04751698.plan.md"  # 默认计划文件，可改
 ```
 
 ## 触发方式
@@ -30,8 +30,102 @@ project:
 | 查看进度 / 有哪些任务 / 任务列表 | `list_tasks` | 列出本项目未完成任务，按状态分组简要展示 |
 | 阻塞了 / 卡住了 / blocked + 功能名 | `block_task` | 匹配任务 → 状态改为 **Blocked**（无则用最接近的阻塞态） |
 | 提 PR / 准备提交 / 可以合并了 + 功能名 | `prepare_pr` | 确认分支与任务关联，给出 PR 标题、描述要点、`gh pr create` 命令 |
+| 同步计划 / 导入 Linear / 计划同步到 Linear / 把计划写成 todo | `sync_plan` | 解析 Markdown 计划 → 在 Linear 创建里程碑与子任务（见下文） |
 
 功能名从用户原话提取，模糊匹配 `list_issues(project=project.name, team=project.team, query=关键词)`。
+
+## Markdown 计划 → Linear 同步（`sync_plan`）
+
+用户用 Markdown 写计划（含 `阶段1`、`阶段2`…），需要同步为 Linear todo 时执行本节。
+
+### 触发与文件来源
+
+1. 用户 `@` 引用了计划文件 → 用该文件。
+2. 未指定 → 用 `project.plan`。
+3. 仍无 → 在工作区 `.cursor/plans/` 下找最新 `.plan.md` 或用户打开的 plan 文件。
+
+### 计划解析规则
+
+从 Markdown **正文** 和 **YAML frontmatter** 两处提取任务：
+
+**A. 阶段标题（→ Linear 里程碑 Milestone）**
+
+匹配任一格式：
+
+- `#### 阶段 1：标题` / `#### 阶段1：标题`
+- `### 阶段 1：标题` / `## 阶段1 标题`
+- `阶段1、` / `阶段 1、` 开头的行
+
+提取：`阶段编号` + `阶段标题`（冒号/顿号后文字）。  
+示例：`#### 阶段 1：搭建前后端基础框架并运行测试` → 里程碑名 `阶段1：搭建前后端基础框架并运行测试`。
+
+**B. 阶段下子任务（→ Linear Issue，挂到对应 Milestone）**
+
+阶段标题下方、下一阶段之前的：
+
+- `- ` / `* ` 无序列表项
+- frontmatter 里 `todos[].content`（如 `阶段1-搭建 FastAPI 后端骨架`）
+
+列表项或 todo 的 `content` 作为 **Issue 标题**；若含 `阶段N-` 前缀，保留或去掉均可，以可读为准。  
+阶段段落里的 `目标：...`、验收说明等写入 Issue `description`（Markdown）。
+
+**C. frontmatter todos 与正文去重**
+
+同一标题或高度相似（忽略 `阶段N-` 前缀）只创建一次，优先保留信息更全的一条。
+
+### Linear 写入结构
+
+```
+Project (project.name)
+├── Milestone: 阶段1：xxx
+│   ├── Issue: 搭建 FastAPI 后端骨架
+│   └── Issue: 用 Vite 初始化 React 三栏布局
+├── Milestone: 阶段2：xxx
+│   └── Issue: ...
+```
+
+步骤：
+
+1. `list_milestones(project=project.name)`、`list_issues(project=project.name, team=project.team)` 拉取已有项，**避免重复创建**（按里程碑名、Issue 标题模糊匹配）。
+2. 每个阶段：`save_milestone(project=project.name, name="阶段N：标题", description=阶段目标摘要)`。
+3. 每个子任务：`save_issue(team=project.team, project=project.name, milestone="阶段N：标题", title="...", description="...", state="Backlog")`。
+4. 全部默认 `Backlog`；不自动指派、不改已有 Issue 状态（除非用户说「覆盖同步」）。
+
+### 同步模式
+
+| 用户说法 | 行为 |
+|---|---|
+| 同步计划 / 导入 Linear（默认） | 仅**新增**缺失的里程碑与 Issue |
+| 覆盖同步 / 全量同步 | 先汇报差异，再按用户确认更新描述或补建（不删除已有 Issue） |
+| 只同步阶段N | 仅处理指定阶段及其子任务 |
+
+### 回复格式
+
+```
+📋 已从 plan.md 同步到 Linear（智能数据分析系统）
+
+阶段1：搭建前后端基础框架并运行测试
+  ✅ VIB-7  搭建 FastAPI 后端骨架
+  ✅ VIB-8  用 Vite 初始化 React 三栏布局
+  ⏭️  冒烟测试（已存在 VIB-9，跳过）
+
+阶段2：研发前端 UI
+  ✅ VIB-10 实现三栏 UI 与样式
+  ...
+
+共新建 2 个里程碑、8 个 Issue，跳过 2 个重复项
+🔗 项目：https://linear.app/.../project/...
+```
+
+### 示例
+
+**用户**：帮我把当前计划同步到 Linear
+
+**Agent**：
+1. 读取 `project.plan` 或用户 @ 的文件
+2. 解析 4 个阶段 + 各阶段 bullet / frontmatter todos
+3. `save_milestone` × 4，`save_issue` × N
+4. 输出分阶段清单与链接
 
 ## 任务匹配规则
 
