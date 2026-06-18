@@ -9,7 +9,8 @@ alwaysApply: true
 ```yaml
 project:
   name: "智能数据分析助手"   # Linear 项目名，须与 team 配套
-  team: "NL2SQL"             # Linear 团队 Key（议题编号前缀，如 NL2SQL-1）
+  # team: "NL2SQL"             # Linear 团队 Key（议题编号前缀，如 NL2SQL-1）
+  team: "智能数据分析助手"             # Linear 团队 Key（议题编号前缀，如 NL2SQL-1）
   repo: "https://github.com/nononoyeah/vibe_coding_01_104.git"
   plan: ".cursor/plans/智能数据分析系统规划_04751698.plan.md"
 ```
@@ -186,10 +187,10 @@ git checkout -b <branch> origin/main
 
 当用户说「实现阶段N」「研发阶段N」「完成阶段N」或 Agent 实际执行某阶段研发时，**代码与 Linear 必须同步**，不能只写代码不更新任务。
 
-**阶段3 额外强制**：实现 `data-analysis/backend/` 下 LLM、Agent、SSE、记忆模块时，必须遵循 [.cursor/rules/phase3-llm-io-spec.mdc](phase3-llm-io-spec.mdc) 中的 `ChatQwQ` 字段与 SSE 映射规范（来源：`test_chat_qwq.py` 实测）。
+**阶段3 额外强制**：实现 `data-analysis/backend/` 下 LLM、Agent、SSE、记忆模块时，必须遵循 [.cursor/rules/phase3-llm-io-spec.mdc](phase3-llm-io-spec.mdc) 中的 `ChatQwQ` 字段与 SSE 映射规范（来源：`test_chat_qwq.py` 实测）。**阶段3标 Done 前必须跑通 `test_api_phase3.py`（规范 §9）**。
 
 1. **阶段开始**：`list_issues(project=project.name, team=project.team, query="阶段N")` 找到该阶段子任务 → 相关 Issue 改为 **In Progress**，`assignee: "me"`。
-2. **阶段完成**：将该阶段所有已验收通过的子任务改为 **Done**（按里程碑名或标题匹配，如 `阶段1`）。
+2. **阶段完成**：将该阶段所有已验收通过的子任务改为 **Done**（按里程碑名或标题匹配，如 `阶段1`）。**阶段3**：须先完成 `test_api_phase3.py` 全部通过，再更新 NL2SQL-7 ~ NL2SQL-10。
 3. **回复末尾**必须附 Linear 更新摘要（议题编号、状态、链接）。
 
 示例：完成阶段1 后，将 VIB-18 / VIB-19 / VIB-20 标为 Done。

@@ -1,5 +1,5 @@
 ---
-description: 阶段3后端 LLM 接入、NL2SQL Agent 与流式/函数调用字段规范（ChatQwQ + create_agent + SSE 映射）
+description: 阶段3后端 LLM 接入、NL2SQL Agent、接口集成测试与流式/函数调用字段规范（ChatQwQ + create_agent + SSE 映射）
 globs: data-analysis/backend/**
 alwaysApply: false
 ---
@@ -152,8 +152,9 @@ final_msg = llm_with_tools.invoke(messages)
 - [ ] `finish_reason == "tool_calls"` 时走完整工具往返，不提前结束 SSE
 - [ ] SQLite 连接 `check_same_thread=False` + 工具层加锁（LangGraph ToolNode 线程池）
 - [ ] 单测：`test_chat_qwq.py`（LLM 字段）、`test_nl2sql_agent_qwq.py`（NL2SQL 参数）
+- [ ] **接口集成测试**：`test_api_phase3.py` 全部通过（见 **§9**）后再标 Linear 阶段3 Done
 
-参考实测脚本：`data-analysis/backend/test_chat_qwq.py`、`data-analysis/backend/test_nl2sql_agent_qwq.py`
+参考实测脚本：`test_chat_qwq.py`、`test_nl2sql_agent_qwq.py`、`test_api_phase3.py`
 
 ## 8. NL2SQL SQL Agent 参数规范（`create_agent` + SQL Tools）
 
@@ -398,3 +399,99 @@ def run_nl2sql(agent, question: str) -> list:
     out = agent.invoke({"messages": [HumanMessage(content=question)]})
     return out["messages"]
 ```
+
+## 9. 阶段3接口集成测试流程（强制，对应 NL2SQL-10）
+
+阶段3代码完成后、标 Linear **Done** 之前，**必须**跑通本节流程。禁止只做 Swagger 肉眼点检或只跑 LLM 字段单测。
+
+### 9.1 前置条件
+
+| 项 | 要求 |
+|---|---|
+| 工作目录 | `data-analysis/backend/` |
+| 环境变量 | `.env` 已配置 `DASHSCOPE_API_KEY`、`LLM_MODEL`、`LLM_BASE_URL`（国内端点） |
+| 依赖 | `pip install -r requirements.txt` |
+| 服务已启动 | `uvicorn app.main:app --reload --port 8000` |
+| 版本确认 | `GET /api/health` 返回 `"version": "0.2.0"` 且 `"phase": 3` |
+
+**常见陷阱**：8000 端口若仍跑阶段1旧进程（`version: 0.1.0`），Swagger 只显示 `/api/health` 一个接口。须先停旧进程再启动新服务（见 §9.4）。
+
+### 9.2 测试脚本与命令
+
+脚本：`data-analysis/backend/test_api_phase3.py`
+
+```bash
+# 终端 1：启动后端
+cd data-analysis/backend
+uvicorn app.main:app --reload --port 8000
+
+# 终端 2：跑接口集成测试
+cd data-analysis/backend
+python test_api_phase3.py
+# 或指定地址
+python test_api_phase3.py --base http://127.0.0.1:8000
+```
+
+**通过标准**：退出码 `0`，输出 `通过: 21  失败: 0`（用例数随脚本更新，以脚本内断言为准）。
+
+### 9.3 测试用例清单（按执行顺序）
+
+| 序号 | 类别 | 验证点 |
+|---|---|---|
+| 1 | 探活 | `GET /api/health` → `0.2.0` / `phase: 3` |
+| 2 | 会话 CRUD | `POST` 创建 → `GET` 列表含新会话 → `GET /{id}` 详情 → `GET /{id}/messages` 初始为空 → 不存在 id 返回 `404` |
+| 3 | SSE 问答 | `POST /api/chat` 事件序列含 `sql` → `result` → `token` → `chart` → `done` |
+| 3a | NL2SQL | `sql` 事件为合法 `SELECT`，且涉及业务表（如 `customers`） |
+| 3b | 结果集 | `result` 含 `columns` / `rows` / `row_count` |
+| 3c | 回答 | `token` 含 `content`（用户可见正文） |
+| 3d | 图表 | `chart.option` 含 `series` 或 `title`（合法 ECharts JSON） |
+| 4 | 持久化 | 问答后 `GET /messages` 含 `user` + `assistant`；`assistant.sql` 有值；会话 `chartOption` 已更新 |
+| 5 | 上下文记忆 | 同一会话第二轮提问 SSE 正常结束；可见消息 ≥ 4 条 |
+| 6 | 错误用例 | 无效 `session_id` 的 chat 返回 SSE `error` 事件 |
+| 7 | 删除 | `DELETE /api/sessions/{id}` → `204`；删除后 `GET` → `404` |
+
+### 9.4 Swagger 手动抽检（可选，不替代 §9.2）
+
+- Swagger UI：http://localhost:8000/docs  
+- ReDoc：http://localhost:8000/redoc  
+
+手动用 Swagger 调试 `POST /api/chat` 时，响应类型为 `text/event-stream`，浏览器可能无法完整展示 SSE；**以 `test_api_phase3.py` 为准**。
+
+**端口被占用时**（Windows）：
+
+```bash
+netstat -ano | findstr ":8000"
+taskkill /F /PID <PID>
+```
+
+### 9.5 SSE 解析约定（测试/前端必读）
+
+`sse-starlette` 响应格式示例：
+
+```
+event: sql
+data: {"type":"sql","sql":"SELECT ..."}
+
+: ping - 2026-06-18 05:44:55.772405+00:00
+
+event: done
+data: {"type":"done","usage":{...}}
+```
+
+解析规则：
+
+- 按行读取；`event:` 更新当前事件名，`data:` 后 `json.loads` 得 payload
+- **忽略**以 `:` 开头的注释行（心跳 `ping`）
+- 元组结构为 `(event_name, data_dict)`；**禁止** `for _, e in events` 后再访问 `e[1]`（`e` 已是 dict）
+
+### 9.6 阶段完成检查顺序（Agent 强制执行）
+
+```
+1. test_chat_qwq.py          — LLM 流式 / tool_calls 字段
+2. test_nl2sql_agent_qwq.py  — NL2SQL tool_calls 入参/出参形状
+3. 启动 uvicorn（确认 health 为 0.2.0）
+4. test_api_phase3.py        — 全接口集成（本节）
+5. Linear NL2SQL-7~10 → Done
+```
+
+任一步失败：修复后从失败步骤重跑，**不得**跳过 §9.2 直接标 Done。
