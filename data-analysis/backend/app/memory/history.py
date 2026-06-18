@@ -41,6 +41,11 @@ def load_langchain_messages(session_id: str) -> list[BaseMessage]:
     return lc_messages
 
 
+def save_direct_turn(session_id: str, user_text: str, answer: str) -> None:
+    app_store.add_message(session_id, role="human", content=user_text)
+    app_store.add_message(session_id, role="ai", content=answer)
+
+
 def save_agent_turn(
     session_id: str,
     user_text: str,

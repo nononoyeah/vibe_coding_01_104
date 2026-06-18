@@ -2,17 +2,14 @@ import { useEffect, useState } from "react";
 import ChartPanel from "./components/ChartPanel";
 import ChatPanel from "./components/ChatPanel";
 import ChatSidebar from "./components/ChatSidebar";
+import { useSessionStore } from "./store/sessions";
+import type { HealthResponse } from "./types";
 import "./App.css";
-
-type HealthResponse = {
-  status: string;
-  service: string;
-  version: string;
-};
 
 export default function App() {
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const loadSessions = useSessionStore((s) => s.loadSessions);
 
   useEffect(() => {
     fetch("/api/health")
@@ -24,20 +21,25 @@ export default function App() {
       .catch((err: Error) => setError(err.message));
   }, []);
 
+  useEffect(() => {
+    loadSessions().catch((err: Error) => setError(err.message));
+  }, [loadSessions]);
+
   return (
     <div className="app">
       <header className="app-header">
         <div className="header-left">
           <h1>智能数据分析系统</h1>
-          <p className="app-subtitle">阶段2 · 前端 UI（mock 驱动）</p>
+          <p className="app-subtitle">阶段4 · 真实 API 联调</p>
         </div>
         <div className="health-status">
           {health && (
             <span className="health-ok">
               后端 {health.version}
+              {health.phase != null ? ` · phase ${health.phase}` : ""}
             </span>
           )}
-          {error && <span className="health-error">后端离线</span>}
+          {error && <span className="health-error">{error}</span>}
         </div>
       </header>
 

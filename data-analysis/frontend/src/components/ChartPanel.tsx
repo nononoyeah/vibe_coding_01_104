@@ -20,7 +20,7 @@ export default function ChartPanel() {
       ) : (
         <div className="chart-placeholder">
           <p>发送问题后，图表将在此展示</p>
-          <span className="chart-hint">mock 模式下将渲染示例柱状图</span>
+          <span className="chart-hint">提问后将根据查询结果自动生成 ECharts 配置</span>
         </div>
       )}
     </aside>

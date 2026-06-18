@@ -1,25 +1,50 @@
 import type { Session } from "../types";
 
-/** 阶段2：mock 会话 API，阶段4 切换为真实后端 */
+async function request<T>(
+  path: string,
+  options: RequestInit = {},
+): Promise<T> {
+  const res = await fetch(path, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...options.headers,
+    },
+  });
 
-const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  if (!res.ok) {
+    let detail = `HTTP ${res.status}`;
+    try {
+      const body = await res.json();
+      if (body?.detail) detail = String(body.detail);
+    } catch {
+      /* ignore */
+    }
+    throw new Error(detail);
+  }
+
+  if (res.status === 204) {
+    return undefined as T;
+  }
+
+  return res.json() as Promise<T>;
+}
 
 export async function fetchSessions(): Promise<Session[]> {
-  await delay(100);
-  return [];
+  return request<Session[]>("/api/sessions");
 }
 
-export async function createSessionApi(title: string): Promise<Session> {
-  await delay(80);
-  return {
-    id: crypto.randomUUID(),
-    title,
-    messages: [],
-    chartOption: null,
-    updatedAt: Date.now(),
-  };
+export async function fetchSession(sessionId: string): Promise<Session> {
+  return request<Session>(`/api/sessions/${sessionId}`);
 }
 
-export async function deleteSessionApi(_id: string): Promise<void> {
-  await delay(80);
+export async function createSessionApi(title = "新对话"): Promise<Session> {
+  return request<Session>("/api/sessions", {
+    method: "POST",
+    body: JSON.stringify({ title }),
+  });
+}
+
+export async function deleteSessionApi(sessionId: string): Promise<void> {
+  await request<void>(`/api/sessions/${sessionId}`, { method: "DELETE" });
 }

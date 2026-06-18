@@ -1,57 +1,121 @@
 import { useCallback, useRef } from "react";
-import { MOCK_ANSWER, MOCK_CHART_OPTION, MOCK_SQL } from "../api/mock";
+import { createSseParser } from "../lib/parseSse";
 import type { StreamEvent } from "../types";
 
-type StreamCallbacks = {
+export type StreamCallbacks = {
   onSql: (sql: string) => void;
-  onToken: (token: string) => void;
+  onToken: (content: string) => void;
   onChart: (option: Record<string, unknown>) => void;
+  onResult?: (result: Extract<StreamEvent, { type: "result" }>) => void;
+  onError: (message: string) => void;
   onDone: () => void;
 };
 
-/** 阶段2：伪 SSE 流式输出；阶段4 替换为真实 EventSource/fetch stream */
+function dispatchEvent(data: StreamEvent, callbacks: StreamCallbacks): "done" | "error" | void {
+  switch (data.type) {
+    case "sql":
+      callbacks.onSql(data.sql);
+      break;
+    case "result":
+      callbacks.onResult?.(data);
+      break;
+    case "token":
+      callbacks.onToken(data.content);
+      break;
+    case "chart":
+      callbacks.onChart(data.option);
+      break;
+    case "error":
+      callbacks.onError(data.message);
+      return "error";
+    case "done":
+      callbacks.onDone();
+      return "done";
+  }
+}
+
 export function useChatStream() {
-  const abortRef = useRef(false);
+  const abortRef = useRef<AbortController | null>(null);
 
   const sendMessage = useCallback(
-    async (question: string, callbacks: StreamCallbacks) => {
-      abortRef.current = false;
+    async (sessionId: string, message: string, callbacks: StreamCallbacks) => {
+      abortRef.current?.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
 
-      await sleep(300);
-      if (abortRef.current) return;
-      callbacks.onSql(MOCK_SQL);
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "text/event-stream",
+        },
+        body: JSON.stringify({ session_id: sessionId, message }),
+        signal: controller.signal,
+      });
 
-      await sleep(400);
-      if (abortRef.current) return;
-
-      const answer =
-        question.includes("销售") || question.includes("月")
-          ? MOCK_ANSWER
-          : `已收到您的问题：「${question}」。这是 mock 回复，阶段4 将接入真实大模型与数据库查询。`;
-
-      for (const char of answer) {
-        if (abortRef.current) return;
-        callbacks.onToken(char);
-        await sleep(25);
+      if (!res.ok) {
+        let detail = `HTTP ${res.status}`;
+        try {
+          const body = await res.json();
+          if (body?.detail) detail = String(body.detail);
+        } catch {
+          /* ignore */
+        }
+        callbacks.onError(detail);
+        return;
       }
 
-      await sleep(200);
-      if (abortRef.current) return;
-      callbacks.onChart(MOCK_CHART_OPTION);
-      callbacks.onDone();
+      if (!res.body) {
+        callbacks.onError("浏览器不支持流式响应");
+        return;
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      const parser = createSseParser();
+      let finished = false;
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (controller.signal.aborted) return;
+
+          if (value) {
+            for (const { data } of parser.feed(decoder.decode(value, { stream: true }))) {
+              if (controller.signal.aborted) return;
+              const status = dispatchEvent(data, callbacks);
+              if (status === "error") return;
+              if (status === "done") finished = true;
+            }
+          }
+
+          if (done) break;
+        }
+
+        for (const { data } of parser.flush()) {
+          if (controller.signal.aborted) return;
+          const status = dispatchEvent(data, callbacks);
+          if (status === "error") return;
+          if (status === "done") finished = true;
+        }
+      } catch (err) {
+        if (err instanceof Error && err.name === "AbortError") return;
+        throw err;
+      }
+
+      if (!finished && !controller.signal.aborted) {
+        callbacks.onDone();
+      }
     },
-    []
+    [],
   );
 
   const abort = useCallback(() => {
-    abortRef.current = true;
+    abortRef.current?.abort();
+    abortRef.current = null;
   }, []);
 
   return { sendMessage, abort };
-}
-
-function sleep(ms: number) {
-  return new Promise((r) => setTimeout(r, ms));
 }
 
 export type { StreamEvent };

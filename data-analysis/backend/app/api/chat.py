@@ -9,11 +9,13 @@ from langchain_core.messages import HumanMessage
 from sse_starlette.sse import EventSourceResponse
 
 from app.agents.chart_agent import generate_chart_option
+from app.agents.direct_chat import stream_direct_reply
+from app.agents.intent import should_use_sql_agent
 from app.agents.sql_agent import create_sql_agent, stream_nl2sql
 from app.api.schemas import ChatRequest
 from app.db import app_store
 from app.db.database import open_biz_connection
-from app.memory.history import load_langchain_messages, save_agent_turn
+from app.memory.history import load_langchain_messages, save_agent_turn, save_direct_turn
 
 router = APIRouter(prefix="/api", tags=["chat"])
 
@@ -33,16 +35,22 @@ async def _chat_event_generator(body: ChatRequest) -> AsyncIterator[dict]:
     prior_len = len(lc_messages)
     lc_messages.append(HumanMessage(content=question))
 
-    conn = open_biz_connection()
+    use_sql = should_use_sql_agent(question)
+    conn = None
     try:
-        agent = create_sql_agent(conn)
+        if use_sql:
+            conn = open_biz_connection()
+            event_iter = stream_nl2sql(create_sql_agent(conn), lc_messages)
+        else:
+            event_iter = stream_direct_reply(lc_messages[:-1], question)
+
         final_answer = ""
         sql_text: str | None = None
         query_result: dict | None = None
         usage: dict | None = None
-        all_messages = []
+        all_messages: list = []
 
-        for event in stream_nl2sql(agent, lc_messages):
+        for event in event_iter:
             if event.get("type") == "_done_internal":
                 final_answer = event.get("final_answer") or ""
                 sql_text = event.get("sql_text")
@@ -54,7 +62,7 @@ async def _chat_event_generator(body: ChatRequest) -> AsyncIterator[dict]:
             yield _sse(event["type"], event)
             await asyncio.sleep(0)
 
-        if query_result and query_result.get("row_count", 0) > 0:
+        if use_sql and query_result and query_result.get("row_count", 0) > 0:
             try:
                 chart_option = await asyncio.to_thread(
                     generate_chart_option,
@@ -67,13 +75,16 @@ async def _chat_event_generator(body: ChatRequest) -> AsyncIterator[dict]:
             except Exception as e:  # noqa: BLE001
                 yield _sse("error", {"type": "error", "message": f"图表生成失败: {e}"})
 
-        save_agent_turn(
-            body.session_id,
-            question,
-            prior_len,
-            all_messages,
-            sql_text,
-        )
+        if use_sql:
+            save_agent_turn(
+                body.session_id,
+                question,
+                prior_len,
+                all_messages,
+                sql_text,
+            )
+        else:
+            save_direct_turn(body.session_id, question, final_answer)
 
         done_payload: dict = {"type": "done"}
         if usage:
@@ -83,7 +94,8 @@ async def _chat_event_generator(body: ChatRequest) -> AsyncIterator[dict]:
     except Exception as e:  # noqa: BLE001
         yield _sse("error", {"type": "error", "message": str(e)})
     finally:
-        conn.close()
+        if conn is not None:
+            conn.close()
 
 
 @router.post("/chat")

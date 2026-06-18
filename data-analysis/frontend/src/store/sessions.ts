@@ -1,14 +1,21 @@
 import { create } from "zustand";
-import { createSessionApi, deleteSessionApi } from "../api/client";
+import {
+  createSessionApi,
+  deleteSessionApi,
+  fetchSession,
+  fetchSessions,
+} from "../api/client";
 import type { Message, Session } from "../types";
 
 type SessionStore = {
   sessions: Session[];
   activeId: string | null;
   isStreaming: boolean;
+  loadSessions: () => Promise<void>;
+  refreshSession: (id: string) => Promise<void>;
   createSession: () => Promise<void>;
   deleteSession: (id: string) => Promise<void>;
-  selectSession: (id: string) => void;
+  selectSession: (id: string) => Promise<void>;
   addUserMessage: (content: string) => string;
   startAssistantMessage: () => string;
   appendAssistantToken: (msgId: string, token: string) => void;
@@ -23,6 +30,27 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
   sessions: [],
   activeId: null,
   isStreaming: false,
+
+  loadSessions: async () => {
+    const sessions = await fetchSessions();
+    set((s) => ({
+      sessions,
+      activeId: s.activeId ?? sessions[0]?.id ?? null,
+    }));
+    const { activeId } = get();
+    if (activeId) {
+      await get().refreshSession(activeId);
+    }
+  },
+
+  refreshSession: async (id) => {
+    const session = await fetchSession(id);
+    set((s) => ({
+      sessions: s.sessions.some((x) => x.id === id)
+        ? s.sessions.map((x) => (x.id === id ? session : x))
+        : [session, ...s.sessions],
+    }));
+  },
 
   createSession: async () => {
     const session = await createSessionApi("新对话");
@@ -42,7 +70,10 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     });
   },
 
-  selectSession: (id) => set({ activeId: id }),
+  selectSession: async (id) => {
+    set({ activeId: id });
+    await get().refreshSession(id);
+  },
 
   addUserMessage: (content) => {
     const msg: Message = {
@@ -80,7 +111,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     set((s) => updateSession(s, (sess) => ({
       ...sess,
       messages: sess.messages.map((m) =>
-        m.id === msgId ? { ...m, content: m.content + token } : m
+        m.id === msgId ? { ...m, content: m.content + token } : m,
       ),
     })));
   },
@@ -89,7 +120,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     set((s) => updateSession(s, (sess) => ({
       ...sess,
       messages: sess.messages.map((m) =>
-        m.id === msgId ? { ...m, sql } : m
+        m.id === msgId ? { ...m, sql } : m,
       ),
     })));
   },
@@ -98,7 +129,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
     set((s) => updateSession(s, (sess) => ({
       ...sess,
       messages: sess.messages.map((m) =>
-        m.id === msgId ? { ...m, streaming: false } : m
+        m.id === msgId ? { ...m, streaming: false } : m,
       ),
       updatedAt: Date.now(),
     })));
@@ -121,12 +152,12 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
 
 function updateSession(
   state: { sessions: Session[]; activeId: string | null },
-  updater: (s: Session) => Session
+  updater: (s: Session) => Session,
 ) {
   if (!state.activeId) return state;
   return {
     sessions: state.sessions.map((s) =>
-      s.id === state.activeId ? updater(s) : s
+      s.id === state.activeId ? updater(s) : s,
     ),
   };
 }

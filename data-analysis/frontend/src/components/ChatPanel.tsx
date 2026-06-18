@@ -6,6 +6,7 @@ import "./ChatPanel.css";
 
 export default function ChatPanel() {
   const [input, setInput] = useState("");
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const { sendMessage } = useChatStream();
 
@@ -18,6 +19,7 @@ export default function ChatPanel() {
   const finishAssistantMessage = useSessionStore((s) => s.finishAssistantMessage);
   const setChartOption = useSessionStore((s) => s.setChartOption);
   const setStreaming = useSessionStore((s) => s.setStreaming);
+  const refreshSession = useSessionStore((s) => s.refreshSession);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -28,20 +30,37 @@ export default function ChatPanel() {
     if (!text || !activeSession || isStreaming) return;
 
     setInput("");
+    setErrorMsg(null);
     addUserMessage(text);
     setStreaming(true);
 
     const assistantId = startAssistantMessage();
+    const sessionId = activeSession.id;
 
-    await sendMessage(text, {
-      onSql: (sql) => setMessageSql(assistantId, sql),
-      onToken: (token) => appendAssistantToken(assistantId, token),
-      onChart: (option) => setChartOption(option),
-      onDone: () => {
-        finishAssistantMessage(assistantId);
-        setStreaming(false);
-      },
-    });
+    try {
+      await sendMessage(sessionId, text, {
+        onSql: (sql) => setMessageSql(assistantId, sql),
+        onToken: (content) => appendAssistantToken(assistantId, content),
+        onChart: (option) => setChartOption(option),
+        onError: (message) => {
+          setErrorMsg(message);
+          finishAssistantMessage(assistantId);
+        },
+        onDone: () => {
+          finishAssistantMessage(assistantId);
+        },
+      });
+    } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") return;
+      const message = err instanceof Error ? err.message : "请求失败";
+      setErrorMsg(message);
+      finishAssistantMessage(assistantId);
+    } finally {
+      setStreaming(false);
+      void refreshSession(sessionId).catch(() => {
+        /* 刷新失败不阻塞发送 */
+      });
+    }
   };
 
   const handleKeyDown = (e: KeyboardEvent) => {
@@ -65,6 +84,7 @@ export default function ChatPanel() {
     <section className="chat-panel">
       <div className="chat-messages">
         <MessageList messages={activeSession.messages} />
+        {errorMsg && <div className="chat-error">{errorMsg}</div>}
         <div ref={bottomRef} />
       </div>
 
