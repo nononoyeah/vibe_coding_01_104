@@ -3,3 +3,5 @@ node_modules
 .venv
 data-analysis/backend/data/
 __pycache__
+data-analysis/frontend/dist/
+data-analysis/frontend/tsconfig.tsbuildinfo
