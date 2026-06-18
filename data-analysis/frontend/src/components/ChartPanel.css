@@ -1,0 +1,37 @@
+.chart-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.chart-panel h2 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #374151;
+  margin: 0 0 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.chart-container {
+  flex: 1;
+  min-height: 0;
+}
+
+.chart-placeholder {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #9ca3af;
+  font-size: 0.875rem;
+  text-align: center;
+  gap: 8px;
+}
+
+.chart-hint {
+  font-size: 0.75rem;
+  color: #d1d5db;
+}
